@@ -1,0 +1,219 @@
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>preview clipboard</title>
+    <style>
+      body {
+        font: 14px "ヒラギノ角ゴ Pro W3", "Hiragino Kaku Gothic Pro",
+          "ＭＳ Ｐゴシック", "MS PGothic", Helvetica, Arial;
+      }
+      table {
+        width: 120em;
+        margin-bottom: 0.4em;
+        border: 0.2em solid #ccc;
+        border-radius: 0.5em;
+        border-collapse: separate;
+        border-spacing: 0;
+      }
+      tr {
+        width: 120em;
+      }
+      tr td + td,
+      tr th + td {
+        border-left: 0.1em solid #ccc;
+      }
+      tr + tr td,
+      tr + tr th {
+        border-top: 0.1em solid #ccc;
+      }
+      th,
+      td {
+        padding: 0.2em;
+      }
+      th {
+        width: 8em;
+        text-align: right;
+      }
+      td {
+        max-width: 110em;
+      }
+      pre {
+        overflow-x: scroll;
+        max-width: 108em;
+        font-family: Consolas, "Courier New", Courier, Monaco, monospace;
+      }
+      [name="dataurl"] textarea {
+        width: 108em;
+        height: 6em;
+      }
+      input[name="dataurl"] {
+        width: 80em;
+        font-size: 16px;
+        font-family: Consolas, "Courier New", Courier, Monaco, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="startup">
+      <div>
+        このページにショートカット(<span name="shortcut">Ctrl + V</span
+        >)でコンテンツをペーストしてください
+      </div>
+      <div>ペーストされた内容のプレビューやdataURLを表示します</div>
+      <div>(あまりに大きなコンテンツだとメモリが足りなくなります)</div>
+    </div>
+    <div id="inprogress" style="display: none">読み込み中...</div>
+    <div id="result" style="display: none"></div>
+    <div id="tmpl" style="display: none">
+      <table>
+        <tbody>
+          <tr>
+            <th>#</th>
+            <td name="num"></td>
+          </tr>
+          <tr>
+            <th>kind:</th>
+            <td name="kind"></td>
+          </tr>
+          <tr>
+            <th>type:</th>
+            <td name="type"></td>
+          </tr>
+          <tr>
+            <th>preview:</th>
+            <td name="preview"></td>
+          </tr>
+          <tr>
+            <th>dataURL:</th>
+            <td>
+              <div name="dataurl"></div>
+              <div>
+                <span name="dataurl-length"></span>
+                bytes
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </body>
+  <script>
+    document.onpaste = function (ev) {
+      const startup = document.getElementById("startup");
+      const improgress = document.getElementById("inprogress");
+      const results = document.getElementById("result");
+      startup.style.display = "none";
+
+      const progress = [];
+      progress.update = function (index, val) {
+        this[index] = val;
+        let done = true;
+        for (let i = 0; i < this.length; ++i) {
+          if (this[i] != true) {
+            done = false;
+            break;
+          }
+        }
+        if (this.length > 0 && done) {
+          improgress.style.display = "none";
+          results.style.display = "block";
+        } else {
+          improgress.style.display = "block";
+          results.style.display = "none";
+        }
+      };
+
+      while (results.childNodes.length > 0) {
+        results.removeChild(results.childNodes[0]);
+      }
+
+      const setDataUrl = (el, url) => {
+        const sz = url.length;
+        el.querySelector('[name="dataurl-length"]').innerText =
+          sz.toLocaleString();
+        if (sz < 1048576 /* 1MB */) {
+          const tarea = document.createElement("textarea");
+          tarea.value = url;
+          tarea.onclick = (ev) => {
+            window.setTimeout(() => {
+              ev.target.focus();
+              ev.target.select();
+            }, 0);
+          };
+          el.querySelector('[name="dataurl"]').appendChild(tarea);
+        } else {
+          const lnk = document.createElement("a");
+          const blob = new Blob([url], { type: "text/plain" });
+          lnk.download = "dataURL.txt";
+          lnk.href = window.URL.createObjectURL(blob);
+          lnk.innerText =
+            "大きすぎて表示できないのでこのリンクからdataURLの書かれたテキストファイルをダウンロードしてください";
+          el.querySelector('[name="dataurl"]').appendChild(lnk);
+        }
+      };
+
+      progress.update(ev.clipboardData.items.length, false);
+      for (let i = 0; i < ev.clipboardData.items.length; ++i) {
+        progress.update(i, false);
+        const item = ev.clipboardData.items[i];
+        const result = document
+          .getElementById("tmpl")
+          .querySelector("table")
+          .cloneNode(true);
+        const contentKind = item.kind;
+        const contentType = item.type;
+        result.querySelector('[name="num"]').innerText = String(i + 1);
+        result.querySelector('[name="kind"]').innerText = contentKind;
+        result.querySelector('[name="type"]').innerText =
+          contentType == "" ? "unknown" : contentType;
+
+        switch (item.kind) {
+          case "string":
+            const content = ev.clipboardData.getData(contentType);
+            const pre = document.createElement("pre");
+            pre.innerText = content;
+            result.querySelector('[name="preview"]').appendChild(pre);
+            const dataurl =
+              "data:" +
+              item.kind +
+              ";base64," +
+              window.btoa(unescape(encodeURIComponent(content)));
+            setDataUrl(result, dataurl);
+            progress.update(i, true);
+            break;
+          case "file":
+            const blob = item.getAsFile();
+            const reader = new FileReader();
+            reader.onload = function (ev) {
+              const dataurl = ev.target.result;
+              setDataUrl(result, dataurl);
+              if (contentType.indexOf("image") === 0) {
+                const img = document.createElement("img");
+                img.setAttribute("src", dataurl);
+                result.querySelector('[name="preview"]').appendChild(img);
+              } else {
+                result.querySelector('[name="preview"]').innerText = "非対応";
+              }
+              progress.update(i, true);
+            };
+            reader.readAsDataURL(blob);
+            progress.update(i, false);
+            break;
+          default:
+            console.error("unknonw item.kind", contentKind);
+            continue;
+            break;
+        }
+        results.appendChild(result);
+      }
+      progress.update(ev.clipboardData.items.length, true);
+    };
+
+    window.setTimeout(() => {
+      var ua = window.navigator.userAgent.toLowerCase();
+      if (ua.indexOf("mac os x") !== -1) {
+        document.querySelector('span[name="shortcut"]').innerText = "⌘ + V";
+      }
+    }, 0);
+  </script>
+</html>
